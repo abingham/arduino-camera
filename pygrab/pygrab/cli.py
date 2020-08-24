@@ -8,32 +8,71 @@ import click
 log = logging.getLogger(__name__)
 
 
-def _read_images(ser: serial.Serial):
-    IMAGE_MARKER = b'RDY'
+def _read_ov7670_no_ram_arduino_uno(ser: serial.Serial):
+    IMAGE_MARKER = b'\x00'
+    IMAGE_HEADER_SIZE = 6
     buffer = b''
+
+    # Wait for first image marker
+    while IMAGE_MARKER not in buffer:
+        buffer = ser.read(ser.in_waiting)
+
+    # trim off everything before the image marker
+    buffer = buffer[buffer.index(IMAGE_MARKER):]
+
     while True:
-        incoming = ser.read(ser.in_waiting)
-        buffer += incoming  # read(ser, 1)
-        # print(buffer.count(IMAGE_MARKER), len(incoming))
-        while buffer.count(IMAGE_MARKER) > 1:
-            parts = buffer.split(IMAGE_MARKER)
-            print(list(map(len, parts)))
-            yield parts[1]
-            buffer = IMAGE_MARKER + IMAGE_MARKER.join(parts[2:])
+        # Wait for the rest of the header
+        while len(buffer) < IMAGE_HEADER_SIZE:
+            buffer += ser.read(ser.in_waiting)
+
+        assert buffer.startswith(IMAGE_MARKER)
+
+        # Determine the image size based on the header
+        num_rows = (buffer[1] << 8) + buffer[2]
+        num_cols = (buffer[3] << 8) + buffer[4]
+        bytes_per_pixel = buffer[5]
+        image_size = num_rows * num_cols * bytes_per_pixel
+        log.info(f'image detected: rows={num_rows}, cols={num_cols}, bytes per pixel={bytes_per_pixel}, size={image_size}')
+
+        # Trim off the header from the buffer
+        buffer = buffer[IMAGE_HEADER_SIZE:]
+
+        # Read image data
+        while len(buffer) < image_size:
+            buffer += ser.read(ser.in_waiting)
+
+        assert IMAGE_MARKER not in buffer[:image_size]
+        yield buffer[:image_size]
+
+        buffer = buffer[image_size:]
+
+    # # Read until first image marker is seen
+    # while IMAGE_MARKER not in buffer:
+    #     incoming = ser.read(ser.in_waiting)
+    #     buffer += incoming  # read(ser, 1)
+
+    # # Trim off everything up to and including the image marker
+    # buffer = buffer[buffer.index(IMAGE_MARKER) + len(IMAGE_MARKER):]
+ 
+    # # Now we know that we're receiving full frames
+    # while True:
+    #     incoming = ser.read(ser.in_waiting)
+    #     buffer += incoming  # read(ser, 1)
+    #     # print(buffer.count(IMAGE_MARKER), len(incoming))
+    #     while buffer.count(IMAGE_MARKER) > 0:
+    #         parts = buffer.split(IMAGE_MARKER)
+    #         log.info(f'image detected, {len(parts[0])} bytes')
+    #         yield parts[0]
+    #         buffer = IMAGE_MARKER.join(parts[1:])
 
 
-def read_images(ser: serial.Serial):
+def _read_LiveOV7670(ser: serial.Serial):
     FRAME_START = b'\x00\x01'
     LINE_END = b'\x00\x02'
     buffer = b''
     while True:
-        incoming = ser.read(2)
-        if incoming:
-            print(len(incoming), incoming, (incoming[1] << 8) + incoming[0])
-            # buffer += incoming
-
-        continue
-
+        incoming = ser.read()
+        buffer += incoming
         print('Frame starts:', buffer.count(FRAME_START))
 
         while buffer.count(FRAME_START) > 1:
@@ -65,6 +104,26 @@ def read_images(ser: serial.Serial):
             ser.send_break()
 
 
+def _read_bayer_rgb_640_480(ser: serial.Serial):
+    FRAME_MARKER = b'*RDY*'
+
+    buffer = b''
+    while True:
+        buffer += ser.read(ser.in_waiting)
+
+        while buffer.count(FRAME_MARKER) > 1:
+            log.info('Frame detected')
+            parts = buffer.split(FRAME_MARKER)
+            frame = parts[1]
+            if len(frame) == 640 * 480:
+                yield frame
+            else:
+                log.error(f'Frame size incorrect. Expected: {640 * 480}, Actual: {len(frame)}')
+            buffer = FRAME_MARKER + FRAME_MARKER.join(parts[2:])
+
+read_images = _read_bayer_rgb_640_480
+
+
 @ click.command()
 @ click.argument('filename')
 # @click.argument('width', type=int)
@@ -74,6 +133,8 @@ def read_images(ser: serial.Serial):
 @ click.option('--count', type=int, default=1)
 def main(filename, output, baudrate, count):
     logging.basicConfig(level=logging.INFO)
+
+    log.info(f'Baud rate = {baudrate}')
 
     ser = serial.Serial(filename, baudrate=baudrate)  # open serial port
     ser = serial.Serial(

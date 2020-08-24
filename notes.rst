@@ -12,7 +12,7 @@ process. It's probably something dumb. After that, we can see what frames we're 
 can think about converting it from an ino project to a simpler C++ project.
 
 Projects/Links
-=====
+==============
 
 ov7670-no-ram-arduino-uno
 -------------------------

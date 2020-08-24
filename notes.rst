@@ -1,15 +1,9 @@
-We're able to read *something* from the LiveOV7670 ino project. But it's weird.
+I've settled on using code derived from ov7670-no-ram-arduino-uno. I'm able to get what appears to be an
+oversaturated image from it using VGA/Bayer RGB. Plus it's more pleasant to work with than INOs.
 
-We can read the first frame, and that seems like it might be OK. It's all blue. But after that we're
-unable to read more bytes from the serial port. It's like the port gets stuck, or that the sending end
-won't send more. I can't see why.
+What I want to do next is see if the default register settings it has are incorrect. I'm going to explore other
+more recent libraries to see what their settings are.
 
-But if I restart pygrab, then it starts reading bytes again. There's something about reading from the 
-existing Serial object (or process) that causes problems. I don't know.
-
-I think the best way forward to is to figure out why we can't read more than one frame from a pygrab
-process. It's probably something dumb. After that, we can see what frames we're getting. Then we
-can think about converting it from an ino project to a simpler C++ project.
 
 Projects/Links
 ==============
